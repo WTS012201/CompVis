@@ -20,7 +20,7 @@ class Splitter:
         self.img = np.copy(img)
         self.r_split = r_split
         self.c_split = c_split
-        self.split_size = split_size // 2
+        self.split_size = split_size
 
         splits = []
         m_size, n_size = img.shape[0], img.shape[1]
@@ -29,13 +29,13 @@ class Splitter:
         for i in range(r_split):
             row = []
             f_i, l_i = i == 0, i == c_split - 1
-            start_i = i * (m_size // r_split) - (not f_i) * split_size
-            end_i = (i + 1) * (m_size // r_split) + (not l_i) * split_size
+            start_i = i * (m_size // r_split) - (not f_i) * split_size // 2
+            end_i = (i + 1) * (m_size // r_split) + (not l_i) * split_size // 2
 
             for j in range(c_split):
                 f_j, l_j = j == 0, j == c_split - 1
-                start_j = j * (n_size // c_split) - (not f_j) * split_size
-                end_j = (j + 1) * (n_size // c_split) + (not l_j) * split_size
+                start_j = j * (n_size // c_split) - (not f_j) * split_size // 2
+                end_j = (j + 1) * (n_size // c_split) + (not l_j) * split_size // 2
 
                 split = (img[
                     start_i:end_i + l_i * remain_r,
@@ -54,7 +54,7 @@ class Splitter:
 
     def _draw_splits(self, _rects=False, _color=None):
         cp_splits = self.splits
-        c_ss = self.split_size * 2
+        c_ss = self.split_size
         alpha = 0.25
 
         if _rects:
@@ -89,7 +89,6 @@ class Splitter:
 
         return cp_splits
 
-    # take out of class later
     def show(
         self,
         rrows: range = None,
@@ -98,33 +97,40 @@ class Splitter:
         title: str = None,
         **kwargs
     ):
-        drawspec_kw = inspect.signature(self._draw_splits)
-        showspec_kw = inspect.signature(plt.Axes.imshow)
+        drawspec_kw = inspect.signature(self._draw_splits).parameters
+        showspec_kw = inspect.signature(plt.Axes.imshow).parameters
+        
+        drawspec_kw = {
+            k : kwargs[k] for k, _ in drawspec_kw.items() if k in kwargs
+        }
+        showspec_kw = {
+            k : kwargs[k] for k, _ in showspec_kw.items() if k in kwargs
+        }
 
-        cp_splits = self._draw_splits() if with_lines else self.splits
+        cp_splits = self._draw_splits(**drawspec_kw) if with_lines else self.splits
         rows = len(rrows) if rrows else len(cp_splits)
         cols = len(rcols) if rcols else len(cp_splits[0])
-        _, axes = plt.subplots(rows, cols, figsize=(20,20))
+        _, axes = plt.subplots(rows, cols, figsize=(20, 20))
 
         if rows == 1 and cols == 1:
             axes.imshow(cp_splits[0][0])
             if title:
-                axes.set_title(title, **kwargs)
+                axes.set_title(title, **showspec_kw)
             return
 
         for ai, si in enumerate(rrows if rrows else range(rows)):
             for aj, sj in enumerate(rcols if rcols else range(cols)):
                 if rows == 1:
-                    axes[aj].imshow(cp_splits[si][sj], **kwargs)
-                    axes[aj].set_title(f"Split {sj}")
+                    axes[aj].imshow(cp_splits[si][sj], **showspec_kw)
+                    axes[aj].set_title(f"Split {sj}", fontsize=15)
                 elif cols == 1:
-                    axes[ai].imshow(cp_splits[si][sj], **kwargs)
-                    axes[ai].set_title(f"Split {sj}")
+                    axes[ai].imshow(cp_splits[si][sj], **showspec_kw)
+                    axes[ai].set_title(f"Split {sj}", fontsize=15)
                 else:
-                    axes[ai, aj].imshow(cp_splits[si][sj], **kwargs)
-                    axes[ai, aj].set_title(f"Split {si}, {sj}")
+                    axes[ai, aj].imshow(cp_splits[si][sj], **showspec_kw)
+                    axes[ai, aj].set_title(f"Split {si}, {sj}", fontsize=15)
         
     def apply(self, expr, rrows: range = None, rcols: range = None):
         for i in rrows if rrows else range(self.img):
             for j in rcols if rcols else range(self.img[0]):
-                expr(self.splits[i][j])
+                self.splits[i][j] = expr(self.splits[i][j])
