@@ -12,7 +12,10 @@ class Splitter:
         self.split_size = None
         self.splits = None
         self.split_img(img, r_split, c_split, split_size)
-        
+
+    def __getitem__(self, key):
+        return self.splits[key]
+
     def split_img(self, img, r_split, c_split, split_size):
         self.img = np.copy(img)
         self.r_split = r_split
@@ -47,8 +50,8 @@ class Splitter:
                 )
                 
             splits.append(row)
-        
-        self.splits = np.array(splits)
+        print(len(splits), len(splits[0]))
+        # self.splits = np.array(splits)
 
     def draw_splits(self, _lines=None, _rects=None):
         cp_splits = np.copy(self.splits)
