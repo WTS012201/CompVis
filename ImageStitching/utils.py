@@ -1,8 +1,10 @@
 import cv2 as cv
 import numpy as np
 import inspect
+import copy
 from matplotlib import pyplot as plt
 
+### class for experimenting with keypoints, homography, stiching, etc..
 ### class for experimenting with keypoints, homography, stiching, etc..
 class Splitter:
     def __init__(self, img, r_split, c_split, split_size):
@@ -53,7 +55,7 @@ class Splitter:
         self.splits = splits
 
     def _draw_splits(self, _rects=False, _color=None):
-        cp_splits = self.splits
+        cp_splits = copy.deepcopy(self.splits)
         c_ss = self.split_size
         alpha = 0.25
 
@@ -70,7 +72,6 @@ class Splitter:
 
         for i, row in enumerate(cp_splits):
             for j, img in enumerate(row):
-                # c = cp_splits[i][j]
                 c = np.copy(img)
                 dx = c.shape[1] - c_ss
                 dy = c.shape[0] - c_ss
@@ -101,16 +102,16 @@ class Splitter:
         showspec_kw = inspect.signature(plt.Axes.imshow).parameters
         
         drawspec_kw = {
-            k : kwargs[k] for k, _ in drawspec_kw.items() if k in kwargs
+            k : kwargs[k] for k, v in drawspec_kw.items() if k in kwargs
         }
         showspec_kw = {
-            k : kwargs[k] for k, _ in showspec_kw.items() if k in kwargs
+            k : kwargs[k] for k, v in showspec_kw.items() if k in kwargs
         }
 
         cp_splits = self._draw_splits(**drawspec_kw) if with_lines else self.splits
         rows = len(rrows) if rrows else len(cp_splits)
         cols = len(rcols) if rcols else len(cp_splits[0])
-        _, axes = plt.subplots(rows, cols, figsize=(20, 20))
+        _, axes = plt.subplots(rows, cols, figsize=(20,20))
 
         if rows == 1 and cols == 1:
             axes.imshow(cp_splits[0][0])
@@ -133,4 +134,8 @@ class Splitter:
     def apply(self, expr, rrows: range = None, rcols: range = None):
         for i in rrows if rrows else range(self.img):
             for j in rcols if rcols else range(self.img[0]):
-                self.splits[i][j] = expr(self.splits[i][j])
+                try:
+                    self.splits[i][j] = expr(self.splits[i][j])
+                except:
+                    pass
+
