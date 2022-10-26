@@ -14,6 +14,7 @@ class Splitter:
         self.split_img(img, r_split, c_split, split_size)
 
     def __getitem__(self, key):
+        print(type(key))
         return self.splits[key]
 
     def split_img(self, img, r_split, c_split, split_size):
@@ -50,59 +51,67 @@ class Splitter:
                 )
                 
             splits.append(row)
-        print(len(splits), len(splits[0]))
-        # self.splits = np.array(splits)
+        self.splits = splits
 
-    def draw_splits(self, _lines=None, _rects=None):
-        cp_splits = np.copy(self.splits)
-        r_split, c_split = cp_splits.shape[0], cp_splits.shape[1]
+    def _draw_splits(self, _rects=False, _color=None):
+        cp_splits = self.splits
         c_ss = self.split_size * 2
+
+        if _rects:
+            draw = lambda u, v, x, y: \
+                cv.rectangle(u, v, x, (255, 0, 0, 0.2))
+        else:
+            draw = lambda u, v, x, _=None: \
+                cv.line(u, v, x, (255, 0, 0), 2)
 
         for i, row in enumerate(cp_splits):
             for j, img in enumerate(row):
                 dx = img.shape[1] - c_ss
                 dy = img.shape[0] - c_ss
-                
+
+                cp_splits[i][j] = np.ascontiguousarray(img, dtype=np.uint8)
+
                 if j > 0:
-                    cv.line(
-                        img, (c_ss, 0), (c_ss, len(img)), (255, 0, 0), 2
-                    )
-                if j < c_split - 1:
-                    cv.line(
-                        img, (dx, 0), (dx, len(img)), (255, 0, 0), 2
-                    )
+                    draw(cp_splits[i][j], (c_ss, 0), (c_ss, len(img)))                    
+                if j < self.c_split - 1:
+                    draw(cp_splits[i][j], (dx, 0), (dx, len(img)))
                 if i > 0:
-                    cv.line(
-                        img, (0, c_ss), (len(img[0]), c_ss), (255, 0, 0), 2
-                    )
-                if i < r_split - 1:
-                    cv.line(
-                        img, (0, dy), (len(img[0]), dy), (255, 0, 0), 2
-                    )
+                    draw(cp_splits[i][j], (0, c_ss), (len(img[0]), c_ss))
+                if i < self.r_split - 1:
+                    draw(cp_splits[i][j], (0, dy), (len(img[0]), dy))
 
         return cp_splits
 
-    def show(self, with_lines=False, title=None, **kwargs):
-        drawspec_kw = inspect.signature(self.draw_splits)
+    def show(
+        self,
+        rrows: range = None,
+        rcols: range = None,
+        with_lines: bool = False,
+        title: str = None,
+        **kwargs
+    ):
+        drawspec_kw = inspect.signature(self._draw_splits)
         showspec_kw = inspect.signature(plt.Axes.imshow)
 
-        cp_splits = self.draw_splits() if with_lines else self.splits
-        rows, cols = cp_splits.shape[0], cp_splits.shape[1]
-        fig, axes = plt.subplots(
-            rows, cols, sharey=True, figsize=(10,10)
-        )
+        cp_splits = self._draw_splits() if with_lines else self.splits
+        rows = len(rrows) if rrows else len(cp_splits)
+        cols = len(rcols) if rcols else len(cp_splits[0])
+        _, axes = plt.subplots(rows, cols, sharey=True, figsize=(10,10))
 
         if rows == 1 and cols == 1:
-            axes.imshow(cp_splits[0, 0])
+            axes.imshow(cp_splits[0][0])
             if title:
                 axes.set_title(title, **kwargs)
             return
 
-        for i in range(rows):
-            for j in range(cols):
+        for ai, si in enumerate(rrows if rrows else range(rows)):
+            for aj, sj in enumerate(rcols if rcols else range(cols)):
                 if rows == 1:
-                    axes[j].imshow(cp_splits[i, j], **kwargs)
-                    axes[j].set_title(f"Split {j}")
+                    axes[aj].imshow(cp_splits[si][sj], **kwargs)
+                    axes[aj].set_title(f"Split {sj}")
+                elif cols == 1:
+                    axes[ai].imshow(cp_splits[si][sj], **kwargs)
+                    axes[ai].set_title(f"Split {sj}")
                 else:
-                    axes[i, j].imshow(cp_splits[i, j], **kwargs)
-                    axes[i, j].set_title(f"Split {i}, {j}")
+                    axes[ai, aj].imshow(cp_splits[si][sj], **kwargs)
+                    axes[ai, aj].set_title(f"Split {si}, {sj}")
