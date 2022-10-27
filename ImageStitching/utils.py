@@ -5,7 +5,6 @@ import copy
 from matplotlib import pyplot as plt
 
 ### class for experimenting with keypoints, homography, stiching, etc..
-### class for experimenting with keypoints, homography, stiching, etc..
 class Splitter:
     def __init__(self, img, r_split, c_split, split_size):
         self.img = None
@@ -13,10 +12,14 @@ class Splitter:
         self.c_split = None
         self.split_size = None
         self.splits = None
+        self.mod_splits = None
         self.split_img(img, r_split, c_split, split_size)
 
     def __getitem__(self, key):
         return self.splits[key]
+
+    def restore(self):
+        self.mod_splits = copy.deepcopy(self.splits)
 
     def split_img(self, img, r_split, c_split, split_size):
         self.img = np.copy(img)
@@ -53,22 +56,22 @@ class Splitter:
                 
             splits.append(row)
         self.splits = splits
+        self.mod_splits = copy.deepcopy(splits)
 
-    def _draw_splits(self, _rects=False, _color=None):
-        cp_splits = copy.deepcopy(self.splits)
+    def _draw_splits(self, _orig=False, _rects=False, _color=None, _alpha=0.25):
+        cp_splits = copy.deepcopy(self.splits if _orig else self.mod_splits)
         c_ss = self.split_size
-        alpha = 0.25
 
         if _rects:
             draw = lambda u, x, y, z: \
-                cv.rectangle(
-                    u, (x[0] - c_ss, x[1] - c_ss) if z else x, # x <-> y
-                    y if z else (y[0] + c_ss, y[1] + c_ss),
-                    _color if _color else (255, 0, 0, 0.2), -1
-                )  
+            cv.rectangle(
+                u, (x[0] - c_ss, x[1] - c_ss) if z else x, # x <-> y
+                y if z else (y[0] + c_ss, y[1] + c_ss),
+                _color if _color else (255, 0, 0, 0.2), -1
+            )  
         else:
             draw = lambda u, x, y, _ = None: \
-                cv.line(u, x, y, _color if _color else (255, 0, 0), 3)
+            cv.line(u, x, y, _color if _color else (255, 0, 0), 3)
 
         for i, row in enumerate(cp_splits):
             for j, img in enumerate(row):
@@ -85,7 +88,7 @@ class Splitter:
                 if i < self.r_split - 1:    # bot
                     draw(c, (0, dy), (len(c[0]), dy), False)
                 if _rects:
-                    c = cv.addWeighted(c, alpha, img, 1 - alpha, 0)
+                    c = cv.addWeighted(c, _alpha, img, 1 - _alpha, 0)
                 cp_splits[i][j] = c
 
         return cp_splits
@@ -101,12 +104,8 @@ class Splitter:
         drawspec_kw = inspect.signature(self._draw_splits).parameters
         showspec_kw = inspect.signature(plt.Axes.imshow).parameters
         
-        drawspec_kw = {
-            k : kwargs[k] for k, v in drawspec_kw.items() if k in kwargs
-        }
-        showspec_kw = {
-            k : kwargs[k] for k, v in showspec_kw.items() if k in kwargs
-        }
+        drawspec_kw = {k : kwargs[k] for k, v in drawspec_kw.items() if k in kwargs}
+        showspec_kw = {k : kwargs[k] for k, v in showspec_kw.items() if k in kwargs}
 
         cp_splits = self._draw_splits(**drawspec_kw) if with_lines else self.splits
         rows = len(rrows) if rrows else len(cp_splits)
@@ -131,11 +130,23 @@ class Splitter:
                     axes[ai, aj].imshow(cp_splits[si][sj], **showspec_kw)
                     axes[ai, aj].set_title(f"Split {si}, {sj}", fontsize=15)
         
-    def apply(self, expr, rrows: range = None, rcols: range = None):
+    def apply(self, transform, rrows: range = None, rcols: range = None, **kwargs):
+        t_kw = inspect.signature(transform).parameters
+        t_kw = {k : kwargs[k] for k, v in t_kw.items() if k in kwargs}
+
         for i in rrows if rrows else range(self.img):
             for j in rcols if rcols else range(self.img[0]):
-                try:
-                    self.splits[i][j] = expr(self.splits[i][j])
-                except:
-                    pass
+                try: self.mod_splits[i][j] = transform(self.mod_splits[i][j], **t_kw)
+                except Exception as e: print(e)
 
+    def apply_and_show(
+        self,
+        transform,
+        rrows: range = None,
+        rcols: range = None,
+        with_lines: bool = False,
+        title: str = None,
+        **kwargs
+    ):
+        self.apply(transform, rrows, rcols, **kwargs)
+        self.show(rrows, rcols, with_lines, title, **kwargs)
