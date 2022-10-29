@@ -6,19 +6,19 @@ from matplotlib import pyplot as plt
 
 ### class for experimenting with keypoints, homography, stiching, etc..
 class Splitter:
-    def __init__(self, img, r_split, c_split, split_size):
+    def __init__(self, img, r_split, c_split, split_size,):
         self.img = None
         self.r_split = None
         self.c_split = None
         self.split_size = None
-        self.splits = None
-        self.mod_splits = None
+        self.splits: None
+        self.mod_splits: None
         self.split_img(img, r_split, c_split, split_size)
 
     def __getitem__(self, key):
-        return self.splits[key]
+        return self.mod_splits[key]
 
-    def restore(self):
+    def restore(self):  # restore to original splits
         self.mod_splits = copy.deepcopy(self.splits)
 
     def split_img(self, img, r_split, c_split, split_size):
@@ -55,11 +55,18 @@ class Splitter:
                 row.append(np.ascontiguousarray(split, dtype=np.uint8))
                 
             splits.append(row)
-        self.splits = splits
+        self.splits = np.array(splits, dtype=type(splits))
         self.mod_splits = copy.deepcopy(splits)
 
-    def _draw_splits(self, _orig=False, _rects=False, _color=None, _alpha=0.25):
-        cp_splits = copy.deepcopy(self.splits if _orig else self.mod_splits)
+    def _draw_splits(
+        self,
+        mod=True,       # make changes to mod_splits
+        _rects=False,   # use rects to represent split regions
+        _color=None,    # color of line/rect
+        _alpha=0.25     # opacity of rect
+    ):
+        self.mod_splits = np.array(self.mod_splits, dtype=type(self.mod_splits))
+        cp_splits = self.mod_splits if mod else copy.deepcopy(self.mod_splits)
         c_ss = self.split_size
 
         if _rects:
@@ -80,73 +87,76 @@ class Splitter:
                 dy = c.shape[0] - c_ss
 
                 if j > 0:                   # left
-                    draw(c, (c_ss, 0), (c_ss, len(c)), True)                    
+                    draw(c, (c_ss, 0), (c_ss, c.shape[0]), True)                    
                 if j < self.c_split - 1:    # right
-                    draw(c, (dx, 0), (dx, len(c)), False)
+                    draw(c, (dx, 0), (dx, c.shape[0]), False)
                 if i > 0:                   # top
-                    draw(c, (0, c_ss), (len(c[0]), c_ss), True)
+                    draw(c, (0, c_ss), (c.shape[1], c_ss), True)
                 if i < self.r_split - 1:    # bot
-                    draw(c, (0, dy), (len(c[0]), dy), False)
+                    draw(c, (0, dy), (c.shape[1], dy), False)
                 if _rects:
                     c = cv.addWeighted(c, _alpha, img, 1 - _alpha, 0)
-                cp_splits[i][j] = c
+                cp_splits[i, j] = c
 
         return cp_splits
 
     def show(
         self,
-        rrows: range = None,
-        rcols: range = None,
-        with_lines: bool = False,
-        title: str = None,
+        rrows: range = None,    # range rows to show
+        rcols: range = None,    # range cols to show
+        regions: bool = False,  # show split regions
         **kwargs
     ):
         drawspec_kw = inspect.signature(self._draw_splits).parameters
         showspec_kw = inspect.signature(plt.Axes.imshow).parameters
-        
         drawspec_kw = {k : kwargs[k] for k, v in drawspec_kw.items() if k in kwargs}
         showspec_kw = {k : kwargs[k] for k, v in showspec_kw.items() if k in kwargs}
+        
+        cp_splits = self._draw_splits(**drawspec_kw) if regions else self.mod_splits
 
-        cp_splits = self._draw_splits(**drawspec_kw) if with_lines else self.splits
-        rows = len(rrows) if rrows else len(cp_splits)
-        cols = len(rcols) if rcols else len(cp_splits[0])
+        rows = len(rrows) if rrows else cp_splits.shape[0]
+        cols = len(rcols) if rcols else cp_splits.shape[1]
         _, axes = plt.subplots(rows, cols, figsize=(20,20))
 
         if rows == 1 and cols == 1:
-            axes.imshow(cp_splits[0][0])
-            if title:
-                axes.set_title(title, **showspec_kw)
+            axes.imshow(cp_splits[0, 0])
+            si, sj = rrows[0], rcols[0]
+            axes.set_title(f"Split {si}, {sj}", **showspec_kw)
             return
 
         for ai, si in enumerate(rrows if rrows else range(rows)):
             for aj, sj in enumerate(rcols if rcols else range(cols)):
                 if rows == 1:
-                    axes[aj].imshow(cp_splits[si][sj], **showspec_kw)
-                    axes[aj].set_title(f"Split {sj}", fontsize=15)
+                    axes[aj].imshow(cp_splits[si, sj], **showspec_kw)
+                    axes[aj].set_title(f"Split {si}, {sj}", fontsize=15)
                 elif cols == 1:
-                    axes[ai].imshow(cp_splits[si][sj], **showspec_kw)
-                    axes[ai].set_title(f"Split {sj}", fontsize=15)
+                    axes[ai].imshow(cp_splits[si, sj], **showspec_kw)
+                    axes[ai].set_title(f"Split {si}, {sj}", fontsize=15)
                 else:
-                    axes[ai, aj].imshow(cp_splits[si][sj], **showspec_kw)
+                    axes[ai, aj].imshow(cp_splits[si, sj], **showspec_kw)
                     axes[ai, aj].set_title(f"Split {si}, {sj}", fontsize=15)
         
     def apply(self, transform, rrows: range = None, rcols: range = None, **kwargs):
         t_kw = inspect.signature(transform).parameters
         t_kw = {k : kwargs[k] for k, v in t_kw.items() if k in kwargs}
+        accum = []
 
         for i in rrows if rrows else range(self.img):
             for j in rcols if rcols else range(self.img[0]):
-                try: self.mod_splits[i][j] = transform(self.mod_splits[i][j], **t_kw)
+                try: accum.append(transform(self.mod_splits[i, j], **t_kw))
                 except Exception as e: print(e)
+        
+        return accum
 
     def apply_and_show(
         self,
         transform,
         rrows: range = None,
         rcols: range = None,
-        with_lines: bool = False,
-        title: str = None,
+        regions: bool = False,
         **kwargs
     ):
-        self.apply(transform, rrows, rcols, **kwargs)
-        self.show(rrows, rcols, with_lines, title, **kwargs)
+        accum = self.apply(transform, rrows, rcols, **kwargs)
+        self.show(rrows, rcols, regions, **kwargs)
+
+        return accum
