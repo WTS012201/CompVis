@@ -1,4 +1,5 @@
 import cv2 as cv
+
 import numpy as np
 import inspect
 import copy
@@ -18,8 +19,14 @@ class Splitter:
     def __getitem__(self, key):
         return self.mod_splits[key]
 
-    def restore(self):
-        self.mod_splits = copy.deepcopy(self.splits)
+    def restore(
+        self,
+        rrows: range = None,
+        rcols: range = None,
+    ):      
+        for i in rrows if rrows else range(len(self.splits)):
+            for j in rcols if rcols else range(len(self.splits[0])):
+                self.mod_splits[i][j] = copy.deepcopy(self.splits[i][j])
 
     def split_img(self, img, r_split, c_split, split_size):
         self.img = np.copy(img)
@@ -53,33 +60,32 @@ class Splitter:
                 ])
 
                 row.append(np.ascontiguousarray(split, dtype=np.uint8))
-                
             splits.append(row)
+
         self.splits = splits
         self.mod_splits = copy.deepcopy(splits)
 
     def draw_splits(
         self,
-        mod=True,       # make changes to mod_splits
-        _rects=False,   # use rects to represent split draw
-        _color=None,    # color of line/rect
-        _alpha=0.25     # opacity of rect
+        rects=False,   # use rects to represent split draw
+        mod_orig=False,# modfiy original splits
+        color=None,    # color of line/rect
+        alpha=0.25     # opacity of rect
     ):
-        cp_splits = self.mod_splits if mod else copy.deepcopy(self.mod_splits)
         c_ss = self.split_size
 
-        if _rects:
+        if rects:
             draw = lambda u, x, y, z: \
             cv.rectangle(
                 u, (x[0] - c_ss, x[1] - c_ss) if z else x, # x <-> y
                 y if z else (y[0] + c_ss, y[1] + c_ss),
-                _color if _color else (255, 0, 0, 0.2), -1
+                color if color else (255, 0, 0, 0.2), -1
             )  
         else:
             draw = lambda u, x, y, _ = None: \
-            cv.line(u, x, y, _color if _color else (255, 0, 0), 3)
+            cv.line(u, x, y, color if color else (255, 0, 0), 3)
 
-        for i, row in enumerate(cp_splits):
+        for i, row in enumerate(self.mod_splits):
             for j, img in enumerate(row):
                 c = np.copy(img)
                 dx = c.shape[1] - c_ss
@@ -93,32 +99,29 @@ class Splitter:
                     draw(c, (0, c_ss), (len(c[0]), c_ss), True)
                 if i < self.r_split - 1:    # bot
                     draw(c, (0, dy), (len(c[0]), dy), False)
-                if _rects:
-                    c = cv.addWeighted(c, _alpha, img, 1 - _alpha, 0)
-                cp_splits[i][j] = c
+                if rects:
+                    c = cv.addWeighted(c, alpha, img, 1 - alpha, 0)
+                self.mod_splits[i][j] = c
 
-        return cp_splits
+        if mod_orig:
+            self.splits = copy.deepcopy(self.mod_splits)
 
     def show(
         self,
         rrows: range = None,    # range rows to show
         rcols: range = None,    # range cols to show
-        draw: bool = False,  # show split region
         **kwargs
     ):
-        drawspec_kw = inspect.signature(self.draw_splits).parameters
         showspec_kw = inspect.signature(plt.Axes.imshow).parameters
-        drawspec_kw = {k : kwargs[k] for k, v in drawspec_kw.items() if k in kwargs}
         showspec_kw = {k : kwargs[k] for k, v in showspec_kw.items() if k in kwargs}
         
-        cp_splits = self.draw_splits(**drawspec_kw) if draw else self.mod_splits
-
-        rows = len(rrows) if rrows else len(cp_splits)
-        cols = len(rcols) if rcols else len(cp_splits[0])
+        self.mod_splits = self.mod_splits
+        rows = len(rrows) if rrows else len(self.mod_splits)
+        cols = len(rcols) if rcols else len(self.mod_splits[0])
         _, axes = plt.subplots(rows, cols, figsize=(20,20))
 
         if rows == 1 and cols == 1:
-            axes.imshow(cp_splits[0][0])
+            axes.imshow(self.mod_splits[0][0])
             si, sj = rrows[0], rcols[0]
             axes.set_title(f"Split {si}, {sj}", **showspec_kw)
             return
@@ -126,13 +129,13 @@ class Splitter:
         for ai, si in enumerate(rrows if rrows else range(rows)):
             for aj, sj in enumerate(rcols if rcols else range(cols)):
                 if rows == 1:
-                    axes[aj].imshow(cp_splits[si][sj], **showspec_kw)
+                    axes[aj].imshow(self.mod_splits[si][sj], **showspec_kw)
                     axes[aj].set_title(f"Split {si}, {sj}", fontsize=15)
                 elif cols == 1:
-                    axes[ai].imshow(cp_splits[si][sj], **showspec_kw)
+                    axes[ai].imshow(self.mod_splits[si][sj], **showspec_kw)
                     axes[ai].set_title(f"Split {si}, {sj}", fontsize=15)
                 else:
-                    axes[ai, aj].imshow(cp_splits[si][sj], **showspec_kw)
+                    axes[ai, aj].imshow(self.mod_splits[si][sj], **showspec_kw)
                     axes[ai, aj].set_title(f"Split {si}, {sj}", fontsize=15)
         
     def apply(
@@ -140,14 +143,18 @@ class Splitter:
         transform,
         rrows: range = None,
         rcols: range = None,
+        at: tuple[int, int] = None,
         **kwargs
     ):
         t_kw = inspect.signature(transform).parameters
         t_kw = {k : kwargs[k] for k, v in t_kw.items() if k in kwargs}
         accum = []
 
-        for i in rrows if rrows else range(self.img):
-            for j in rcols if rcols else range(self.img[0]):
+        if at:
+            rrows, rcols = [at[0]], [at[1]]
+
+        for i in rrows if rrows else range(len(self.splits)):
+            for j in rcols if rcols else range(len(self.splits[0])):
                 try:
                     self.mod_splits[i][j], data = \
                     transform(self.mod_splits[i][j], **t_kw)
@@ -164,10 +171,9 @@ class Splitter:
         transform,
         rrows: range = None,
         rcols: range = None,
-        draw: bool = False,
         **kwargs
     ):  
         accum = self.apply(transform, rrows, rcols, **kwargs)
-        self.show(rrows, rcols, draw, **kwargs)
+        self.show(rrows, rcols, **kwargs)
 
         return accum
