@@ -1,3 +1,5 @@
+from typing import Any, Tuple, Union
+from collections.abc import Callable
 import cv2 as cv
 
 import numpy as np
@@ -7,13 +9,17 @@ from matplotlib import pyplot as plt
 
 ### class for experimenting with keypoints, homography, stiching, etc..
 class Splitter:
-    def __init__(self, img, r_split, c_split, split_size):
+    def __init__(
+        self,
+        img: np.ndarray,
+        r_split: int,
+        c_split: int,
+        split_size: int
+    ):
         self.img = None
-        self.r_split = None
-        self.c_split = None
-        self.split_size = None
-        self.splits = None
-        self.mod_splits = None
+        self.r_split, self.c_split, self.split_size = None, None, None
+        self.splits, self.mod_splits = None, None
+
         self.split_img(img, r_split, c_split, split_size)
 
     def __getitem__(self, key):
@@ -21,14 +27,25 @@ class Splitter:
 
     def restore(
         self,
-        rrows: range = None,
-        rcols: range = None,
+        rrows: Union[range, int] = None,
+        rcols: Union[range, int] = None,
     ):      
+        if isinstance(rrows, int):
+            rrows = [rrows]
+        if isinstance(rcols, int):
+            rcols = [rcols]
+
         for i in rrows if rrows else range(len(self.splits)):
             for j in rcols if rcols else range(len(self.splits[0])):
                 self.mod_splits[i][j] = copy.deepcopy(self.splits[i][j])
 
-    def split_img(self, img, r_split, c_split, split_size):
+    def split_img(
+        self,
+        img: np.ndarray,
+        r_split: int,
+        c_split: int,
+        split_size: int
+    ):
         self.img = np.copy(img)
         self.r_split = r_split
         self.c_split = c_split
@@ -67,10 +84,10 @@ class Splitter:
 
     def draw_splits(
         self,
-        rects=False,   # use rects to represent split draw
-        mod_orig=False,# modfiy original splits
-        color=None,    # color of line/rect
-        alpha=0.25     # opacity of rect
+        rects: bool = False,   # use rects to represent split draw
+        mod_orig: bool = False,# modfiy original splits
+        color: bool = False,    # color of line/rect
+        alpha: float = 0.25     # opacity of rect
     ):
         c_ss = self.split_size
 
@@ -108,8 +125,8 @@ class Splitter:
 
     def show(
         self,
-        rrows: range = None,    # range rows to show
-        rcols: range = None,    # range cols to show
+        rrows: Union[range, int] = None,
+        rcols: Union[range, int] = None,
         **kwargs
     ):
         showspec_kw = inspect.signature(plt.Axes.imshow).parameters
@@ -126,6 +143,11 @@ class Splitter:
             axes.set_title(f"Split {si}, {sj}", **showspec_kw)
             return
 
+        if isinstance(rrows, int):
+            rrows = [rrows]
+        if isinstance(rcols, int):
+            rcols = [rcols]
+
         for ai, si in enumerate(rrows if rrows else range(rows)):
             for aj, sj in enumerate(rcols if rcols else range(cols)):
                 if rows == 1:
@@ -140,19 +162,20 @@ class Splitter:
         
     def apply(
         self,
-        transform,
-        rrows: range = None,
-        rcols: range = None,
-        at: tuple[int, int] = None,
+        transform: Callable[[np.ndarray, Any], Tuple[np.ndarray, Any]],
+        rrows: Union[range, int] = None,
+        rcols: Union[range, int] = None,
         **kwargs
     ):
         t_kw = inspect.signature(transform).parameters
         t_kw = {k : kwargs[k] for k, v in t_kw.items() if k in kwargs}
         accum = []
-
-        if at:
-            rrows, rcols = [at[0]], [at[1]]
-
+        
+        if isinstance(rrows, int):
+            rrows = [rrows]
+        if isinstance(rcols, int):
+            rcols = [rcols]
+        
         for i in rrows if rrows else range(len(self.splits)):
             for j in rcols if rcols else range(len(self.splits[0])):
                 try:
@@ -168,9 +191,9 @@ class Splitter:
 
     def apply_and_show(
         self,
-        transform,
-        rrows: range = None,
-        rcols: range = None,
+        transform: Callable[[np.ndarray, Any], Tuple[np.ndarray, Any]],
+        rrows: Union[range, int] = None,
+        rcols: Union[range, int] = None,
         **kwargs
     ):  
         accum = self.apply(transform, rrows, rcols, **kwargs)
