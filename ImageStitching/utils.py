@@ -29,7 +29,7 @@ class Splitter:
     def __setitem__(self, key: Union[Tuple, int, slice], value: list):
         if isinstance(key, Union[int, slice]):
             self.mod_splits[key] = value
-            self.c_splits = len(value)
+            self.c_split = len(value)
             return 
         i, j = key
         self.mod_splits[i][j] = value
@@ -188,8 +188,8 @@ class Splitter:
         if isinstance(rcols, int):
             rcols = [rcols]
         
-        for i in rrows if rrows else range(len(self.splits)):
-            for j in rcols if rcols else range(len(self.splits[0])):
+        for i in rrows if rrows else range(self.r_split):
+            for j in rcols if rcols else range(self.c_split):
                 try:
                     self.mod_splits[i][j], data = \
                     transform(self.mod_splits[i][j], **t_kw)
@@ -228,8 +228,8 @@ def shear(img: np.ndarray, limsx: float = 0.25, limsy: float = 0.25):
         [sx, 1, abs(sx) * x if sx < 0 else 0]
     ])
     s = (int(x + abs(sy) * y), int(y + abs(sx) * x))
-    img = cv.warpAffine(img, M, s, borderValue=(255,255,255))
 
+    img = cv.warpAffine(img, M, s, borderValue=(255,255,255))
     return img
 
 def scale(img: np.ndarray, scale_lim: float = 0.25):
@@ -237,7 +237,8 @@ def scale(img: np.ndarray, scale_lim: float = 0.25):
     scale = np.array([scale, scale])
     scale *= img.shape[:2]
 
-    return cv.resize(img, scale.astype(int)[::-1])
+    img = cv.resize(img, scale.astype(int)[::-1])
+    return img
 
 def rotation(img: np.ndarray, theta_lim: int = 90):
     (y, x) = img.shape[:2]
@@ -255,4 +256,14 @@ def rotation(img: np.ndarray, theta_lim: int = 90):
     img = cv.warpAffine(
         img, M, (int(cx), int(cy)), borderValue=(255,255,255)
     )
+    return img
+
+def trim_padding(img):
+    rows = img.mean(axis = 1).astype(np.uint8)
+    rows = (rows == np.full(3, 255, dtype=np.uint8)).sum(axis = 1)
+    
+    cols = img.mean(axis = 0).astype(np.uint8)
+    cols = (cols == np.full(3, 255, dtype=np.uint8)).sum(axis = 1)
+
+    img = img[rows != 3][:, cols != 3]
     return img
