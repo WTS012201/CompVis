@@ -1,14 +1,11 @@
-import math
 from typing import Any, Tuple, Union
 from collections.abc import Callable
 import cv2 as cv
-
 import numpy as np
 import inspect
 import copy
 from matplotlib import pyplot as plt
 
-### class for experimenting with keypoints, homography, stiching, etc..
 class Splitter:
     def __init__(
         self,
@@ -23,11 +20,21 @@ class Splitter:
 
         self.split_img(img, r_split, c_split, split_size)
 
-    def __getitem__(self, key):
-        return self.mod_splits[key]
+    def __getitem__(self, key: Union[Tuple, int, slice]):
+        if isinstance(key, int) or isinstance(key, slice):
+            return self.mod_splits[key]
+        i, j = key
+        return self.mod_splits[i][j]
 
-    def __setitem__(self, key, value):
-        self.mod_splits[key] = value
+    def __setitem__(self, key: Union[Tuple, int, slice], value):
+        if isinstance(key, int) or isinstance(key, slice):
+            self.mod_splits[key] = value
+            return 
+        i, j = key
+        self.mod_splits[i][j] = value
+    
+    def __iter__(self):
+        return iter(self.mod_splits)
 
     def restore(
         self,
@@ -205,7 +212,7 @@ class Splitter:
 
         return accum
 
-def shear(img, limsx=0.25, limsy=0.25):
+def shear(img: np.ndarray, limsx: float = 0.25, limsy: float = 0.25):
     sx, sy = 0, 0
     if np.random.randint(0,2):
         low, upp = (0, limsx) if limsx > 0 else (limsx, 0)
@@ -218,31 +225,33 @@ def shear(img, limsx=0.25, limsy=0.25):
     M = np.float32([
         [1, sy, abs(sy) * y if sy < 0 else 0],
         [sx, 1, abs(sx) * x if sx < 0 else 0]
-        ]
-    )
+    ])
     s = (int(x + abs(sy) * y), int(y + abs(sx) * x))
     img = cv.warpAffine(img, M, s, borderValue=(255,255,255))
+
     return img
 
-def scale(img, scale_lim=0.25):
+def scale(img: np.ndarray, scale_lim: float = 0.25):
     scale = 1 + np.random.uniform(-scale_lim, scale_lim)
     scale = np.array([scale, scale])
     scale *= img.shape[:2]
+
     return cv.resize(img, scale.astype(int)[::-1])
 
-def rotation(img, theta_lim=90):
+def rotation(img: np.ndarray, theta_lim: int = 90):
     (y, x) = img.shape[:2]
-    cx, cy = x / 2.0, y / 2.0
-    px = math.ceil(math.sqrt(cx ** 2 + cy ** 2)) - int(cx)
-    py = math.ceil(math.sqrt(cx ** 2 + cy ** 2)) - int(cy)
-    shape = tuple(map(lambda i, j: (i + 2 * j), img.shape, (py, px, 0)))
-    outimg = np.full_like([], 255, shape=shape, dtype=np.uint8)
-    outimg[py:-py:, px:-px] = img
-
-    (y, x) = outimg.shape[:2]
     c = (x // 2, y // 2)
     theta_lim = np.random.uniform(-theta_lim, theta_lim, 1)[0]
     M = cv.getRotationMatrix2D(c, theta_lim, 1.0)
-    img = cv.warpAffine(outimg, M, (x, y), borderValue=(255,255,255))
-    return img
+    
+    r = np.deg2rad(theta_lim)
+    cx = (abs(np.sin(r) * y) + abs(np.cos(r) * x))
+    cy = (abs(np.sin(r) * x) + abs(np.cos(r) * y))
+    M[0, 2] += (cx - x) / 2
+    M[1, 2] += (cy - y) / 2
 
+
+    img = cv.warpAffine(
+        img, M, (int(cx), int(cy)), borderValue=(255,255,255)
+    )
+    return img
