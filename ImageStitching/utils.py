@@ -21,14 +21,15 @@ class Splitter:
         self.split_img(img, r_split, c_split, split_size)
 
     def __getitem__(self, key: Union[Tuple, int, slice]):
-        if isinstance(key, int) or isinstance(key, slice):
+        if isinstance(key, Union[int, slice]):
             return self.mod_splits[key]
         i, j = key
         return self.mod_splits[i][j]
 
-    def __setitem__(self, key: Union[Tuple, int, slice], value):
-        if isinstance(key, int) or isinstance(key, slice):
+    def __setitem__(self, key: Union[Tuple, int, slice], value: list):
+        if isinstance(key, Union[int, slice]):
             self.mod_splits[key] = value
+            self.c_splits = len(value)
             return 
         i, j = key
         self.mod_splits[i][j] = value
