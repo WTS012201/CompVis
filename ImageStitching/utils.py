@@ -269,3 +269,172 @@ def trim_padding(img: np.ndarray):
 
     img = img[rows != 3][:, cols != 3]
     return img
+
+def SIFT(
+    img, min_s=0, flags=cv.DrawMatchesFlags_DEFAULT, color=-1, SIFT_draw=True
+):
+    sift = cv.SIFT_create()
+    c_img = img.copy()
+    
+    kp, des = sift.detectAndCompute(c_img, None)
+    kp_des = [v for v in zip(kp, des) if v[0].size >= min_s]
+    [kp, des] = zip(*kp_des)
+    if SIFT_draw:
+        img = cv.drawKeypoints(c_img, kp, img, color=color,flags=flags)
+    else:
+        img = c_img
+
+    return img, (kp, np.array(des))
+
+def pad(split1, split2, axis):
+    (y1, x1), (y2, x2) = split1.shape[:2], split2.shape[:2]
+    if axis == 1:
+        if y1 > y2:
+            padimg = np.full_like([], 255, shape=(y1, x2, 3), dtype=np.uint8)
+            padimg[:y2] = split2
+            split2 = padimg
+        elif y2 > y1:
+            padimg = np.full_like([], 255, shape=(y2, x1, 3), dtype=np.uint8)
+            padimg[:y1] = split1
+            split1 = padimg
+    else:
+        if x1 > x2:
+            padimg = np.full_like([], 255, shape=(y2, x1, 3), dtype=np.uint8)
+            padimg[:, :x2] = split2
+            split2 = padimg
+        elif x2 > x1:
+            padimg = np.full_like([], 255, shape=(y1, x2, 3), dtype=np.uint8)
+            padimg[:, :x1] = split1
+            split1 = padimg
+        
+    return split1, split2
+
+def draw_matches(split1, kp1, split2, kp2, matches, axis):
+    y, x = split1.shape[:2]
+    shift = np.int32([0, y] if axis == 0 else [x, 0])
+    res = np.concatenate((split1, split2), axis=axis)
+    
+    qp = np.int32([kp1[m.queryIdx].pt for m in matches[:, 0]]).reshape(-1,1,2)
+    tp = np.int32([kp2[m.trainIdx].pt for m in matches[:, 0]]).reshape(-1,1,2)
+
+    # matches idx
+    for p1, p2 in zip(qp, tp):
+        p2 += shift
+        cv.circle(res, p1.reshape(2), 4, (0, 255, 0), 1, cv.LINE_AA)
+        cv.circle(res, p2.reshape(2), 4, (0, 255, 0), 1, cv.LINE_AA)
+        cv.line(res, p1.reshape(2), p2.reshape(2), (0, 0, 255), 1, cv.LINE_AA)
+    return res
+
+def register(sift_data, split1, split2, axis, thresh=0.5):
+    split1, split2 = pad(split1, split2, axis)
+    [(kp1, des1), (kp2, des2)] = sift_data
+    bf = cv.BFMatcher()
+    matches = bf.knnMatch(des1, des2, k=2)
+
+    # Apply ratio test
+    matches = np.array(
+        [[m] for m, n in matches if m.distance < thresh * n.distance]
+    )
+    
+    # kp registration
+
+    # compute H matrix
+    if not matches.shape[0]:
+        raise AssertionError("No keypoints found")
+    if len(matches[:, 0]) >= 5:
+        qp = np.float32(
+            [kp1[m.queryIdx].pt for m in matches[:, 0]]).reshape(-1,1,2)
+        tp = np.float32(
+            [kp2[m.trainIdx].pt for m in matches[:, 0]]).reshape(-1,1,2)
+        H, _ = cv.findHomography(qp, tp, cv.RANSAC, 5.0)
+    else:
+        raise AssertionError("Not enough keypoints. \
+            Try applying a different transformation")
+
+    res = draw_matches(split1, kp1, split2, kp2, matches, axis)
+    return res, H
+
+def composite(H, split1, split2):
+    [y1, x1] = split1.shape[:2]
+    [y2, x2] = split2.shape[:2]
+    
+    qp = np.float32([[0, 0], [0, y2], [x2, y2], [x2, 0]]).reshape(-1,1,2)
+    tp = np.float32([[0, 0], [0, y1], [x1, y1], [x1, 0]]).reshape(-1,1,2)
+    tp = cv.perspectiveTransform(tp, H)
+    
+    pts = np.concatenate((qp, tp), axis = 0)    
+    H_min = np.int32(pts.min(axis = 0).flatten())
+    H_max = np.int32(pts.max(axis = 0).flatten())
+    t = np.int32([-H_min[0], -H_min[1]]) 
+    Ht = np.array([
+        [1, 0, t[0]],
+        [0, 1, t[1]],
+        [0, 0, 1   ]
+    ])
+
+    warped = cv.warpPerspective(
+        split1, Ht.dot(H),
+        (H_max[0] - H_min[0], H_max[1] - H_min[1]),
+        borderValue=(255,255,255)
+    )
+    
+    w_left = warped[t[1]:y2 + t[1], t[0]:x2 + t[0]] & split2
+    warp_gray = cv.cvtColor(w_left, cv.COLOR_BGR2GRAY)
+    _, mask = cv.threshold(warp_gray, 0, 255, cv.THRESH_BINARY)
+    w_right = cv.bitwise_and(split2, split2, mask = ~mask)
+    warped[t[1]:y2 + t[1], t[0]:x2 + t[0]] = w_left + w_right
+    
+    return warped
+
+def view_matches(splits, axis, **sift_kw):
+    splits = copy.deepcopy(splits)
+    if axis == 0 or splits.c_split == 1:
+        splits[:] = [splits[:, i] for i in range(splits.c_split)]
+    r_s, c_s = splits.r_split, splits.c_split
+
+    data = splits.apply(SIFT, **sift_kw)
+    data = [data[i * c_s:i * c_s + c_s] for i in range(r_s)]
+
+    if axis: _, axes = plt.subplots(r_s, 1, figsize=(20,20))
+    else: _, axes = plt.subplots(1, r_s, figsize=(20,20))
+
+    for i, s_row in enumerate(splits):
+        _max, H_row = 0, []
+        for j in range(c_s - 1):
+            s1, s2 = s_row[j], s_row[j + 1]
+            res, _ = register(data[i][j:j + 2], s1, s2, axis)
+            if axis:
+                s1, s2 = res[:, :s1.shape[1]], res[:, s1.shape[1]:]
+            else:
+                s1, s2 = res[:s1.shape[0]], res[s1.shape[0]:]
+            s_row[j:j + 2] = s1, s2
+            if s1.shape[not axis] > s_row[_max].shape[not axis]: _max = j
+        row = None
+        for j in range(c_s):
+            s_row[j], _ = pad(s_row[j], s_row[_max], axis=axis)
+            if j == 0:
+                row = s_row[j]
+                continue
+            row = np.concatenate((row, s_row[j]), axis=axis)
+        if r_s > 1:
+            axes[i].imshow(row)
+        else: 
+            axes.imshow(row)
+
+def join_axis(splits, axis, **sift_kw):
+    comp_splits = copy.deepcopy(splits)
+    if axis == 0:
+        comp_splits[:] = [splits[:, i] for i in range(splits.c_split)]
+    r_s, c_s = comp_splits.r_split, comp_splits.c_split
+
+    for i, s_row in enumerate(comp_splits):
+        for j in range(c_s - 1):
+            s1, s2 = s_row[0], s_row[j + 1]
+            _, d1 = SIFT(s1, **sift_kw)
+            _, d2 = SIFT(s2, **sift_kw)
+            _, H = register([d1, d2], s1, s2, axis=1)
+            s_row[0] = composite(H, s1, s2) 
+        comp_splits[i] = [s_row[0]]
+
+    comp_splits.apply(trim_padding)
+    return comp_splits
