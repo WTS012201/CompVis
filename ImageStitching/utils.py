@@ -153,8 +153,9 @@ class Splitter:
 
         if rows == 1 and cols == 1:
             axes.imshow(self.mod_splits[0][0])
-            si, sj = rrows[0], rcols[0]
-            axes.set_title(f"Split {si}, {sj}", **showspec_kw)
+            if rrows and rcols:
+                si, sj = rrows[0], rcols[0]
+                axes.set_title(f"Split {si}, {sj}", **showspec_kw)
             return
 
         if isinstance(rrows, int):
