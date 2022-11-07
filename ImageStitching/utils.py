@@ -24,15 +24,18 @@ class Splitter:
         if isinstance(key, Union[int, slice]):
             return self.mod_splits[key]
         i, j = key
-        return self.mod_splits[i][j]
+        return [row[j] for row in self.mod_splits[i]]
 
     def __setitem__(self, key: Union[Tuple, int, slice], value: list):
         if isinstance(key, Union[int, slice]):
             self.mod_splits[key] = value
-            self.c_split = len(value)
-            return 
-        i, j = key
-        self.mod_splits[i][j] = value
+            self.r_split = len(self.mod_splits)
+            self.c_split = len(self.mod_splits[0])
+        else:
+            i, j = key
+            self.mod_splits[i][j] = value
+            self.r_split = len(self.mod_splits)
+            self.c_split = len(self.mod_splits[0])
     
     def __iter__(self):
         return iter(self.mod_splits)
@@ -98,7 +101,7 @@ class Splitter:
         self,
         rects: bool = False,   # use rects to represent split draw
         mod_orig: bool = False,# modfiy original splits
-        color: bool = False,    # color of line/rect
+        color: tuple = (255, 0, 0),    # color of line/rect
         alpha: float = 0.25     # opacity of rect
     ):
         c_ss = self.split_size
@@ -106,13 +109,12 @@ class Splitter:
         if rects:
             draw = lambda u, x, y, z: \
             cv.rectangle(
-                u, (x[0] - c_ss, x[1] - c_ss) if z else x, # x <-> y
-                y if z else (y[0] + c_ss, y[1] + c_ss),
-                color if color else (255, 0, 0, 0.2), -1
+                u, (x[0] - c_ss, x[1] - c_ss) if z else x,
+                y if z else (y[0] + c_ss, y[1] + c_ss), color, -1
             )  
         else:
-            draw = lambda u, x, y, _ = None: \
-            cv.line(u, x, y, color if color else (255, 0, 0), 3)
+            draw = lambda u, x, y, _: \
+            cv.line(u, x, y, color, 3)
 
         for i, row in enumerate(self.mod_splits):
             for j, img in enumerate(row):
@@ -252,13 +254,12 @@ def rotation(img: np.ndarray, theta_lim: int = 90):
     M[0, 2] += (cx - x) / 2
     M[1, 2] += (cy - y) / 2
 
-
     img = cv.warpAffine(
         img, M, (int(cx), int(cy)), borderValue=(255,255,255)
     )
     return img
 
-def trim_padding(img):
+def trim_padding(img: np.ndarray):
     rows = img.mean(axis = 1).astype(np.uint8)
     rows = (rows == np.full(3, 255, dtype=np.uint8)).sum(axis = 1)
     
