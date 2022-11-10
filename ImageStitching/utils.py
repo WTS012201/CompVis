@@ -325,20 +325,17 @@ def draw_matches(split1, kp1, split2, kp2, matches, axis):
         cv.line(res, p1.reshape(2), p2.reshape(2), (0, 0, 255), 1, cv.LINE_AA)
     return res
 
-def register(sift_data, split1, split2, axis, thresh=0.5):
-    split1, split2 = pad(split1, split2, axis)
+def register(sift_data, split1=None, split2=None, axis=0, thresh=0.5):
+    if not (split1 is None and split1 is None):
+        split1, split2 = pad(split1, split2, axis)
     [(kp1, des1), (kp2, des2)] = sift_data
     bf = cv.BFMatcher()
     matches = bf.knnMatch(des1, des2, k=2)
 
-    # Apply ratio test
     matches = np.array(
         [[m] for m, n in matches if m.distance < thresh * n.distance]
     )
     
-    # kp registration
-
-    # compute H matrix
     if not matches.shape[0]:
         raise AssertionError("No keypoints found")
     if len(matches[:, 0]) >= 5:
@@ -351,7 +348,10 @@ def register(sift_data, split1, split2, axis, thresh=0.5):
         raise AssertionError("Not enough keypoints. \
             Try applying a different transformation")
 
-    res = draw_matches(split1, kp1, split2, kp2, matches, axis)
+    if not (split1 is None and split1 is None):
+        res = draw_matches(split1, kp1, split2, kp2, matches, axis)
+    else: res = None
+
     return res, H
 
 def composite(H, split1, split2):
@@ -399,7 +399,7 @@ def view_matches(splits, axis, **sift_kw):
     else: _, axes = plt.subplots(1, r_s, figsize=(20,20))
 
     for i, s_row in enumerate(splits):
-        _max, H_row = 0, []
+        _max = 0
         for j in range(c_s - 1):
             s1, s2 = s_row[j], s_row[j + 1]
             res, _ = register(data[i][j:j + 2], s1, s2, axis)
