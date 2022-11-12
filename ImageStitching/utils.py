@@ -1,3 +1,4 @@
+import math
 from typing import Any, Tuple, Union
 from collections.abc import Callable
 import cv2 as cv
@@ -326,7 +327,7 @@ def draw_matches(split1, kp1, split2, kp2, matches, axis):
     return res
 
 def register(sift_data, split1=None, split2=None, axis=0, thresh=0.5):
-    if not (split1 is None and split1 is None):
+    if not (split1 is None and split2 is None):
         split1, split2 = pad(split1, split2, axis)
     [(kp1, des1), (kp2, des2)] = sift_data
     bf = cv.BFMatcher()
@@ -348,7 +349,7 @@ def register(sift_data, split1=None, split2=None, axis=0, thresh=0.5):
         raise AssertionError("Not enough keypoints. \
             Try applying a different transformation")
 
-    if not (split1 is None and split1 is None):
+    if not (split1 is None and split2 is None):
         res = draw_matches(split1, kp1, split2, kp2, matches, axis)
     else: res = None
 
@@ -438,3 +439,68 @@ def join_axis(splits, axis, **sift_kw):
 
     comp_splits.apply(trim_padding)
     return comp_splits
+
+def stack_imgs(imgs):
+    stack = None
+
+    for img in imgs:
+        (y, x) = img.shape[:2]
+        sy = -0.5 
+        M = np.float32([
+            [1, sy, abs(sy) * y if sy < 0 else 0],
+            [0, 1, 0]
+        ])
+        s = (int(x + abs(sy) * y), y)
+
+        img = cv.warpAffine(img, M, s, borderValue=(255,255,255))
+        img = cv.resize(img, (s[0], int(s[1] * abs(sy))))
+        shape = (
+            int(s[1] * abs(sy) * 0.1),
+            s[0],
+        )
+        if img.ndim == 3:
+            shape = (*shape, img.shape[2])
+        bot_pad = np.full(
+            fill_value=255, shape=shape, dtype=np.uint8
+        )
+        img = np.concatenate((img, bot_pad), axis=0)
+
+        if stack is None:
+            stack = img
+        else:
+            stack = np.concatenate((img, stack), axis=0) 
+    return stack 
+
+def gen_octave(img, n, sigma = 1, k = math.sqrt(2)):
+    octave = []
+
+    for i in range(n):
+        kernel = cv.getGaussianKernel(5, sigma) 
+        img = cv.filter2D(img, -1, kernel)
+        octave.append(img)
+        sigma *= k
+    
+    return octave 
+
+def extrema_detection(scale_space):
+    s_prev, s_curr, s_next = scale_space
+    candidates = np.full_like(s_curr, fill_value=0)
+    pad = 1
+    neighs = [
+        (i,j) for i in range(-pad, pad + 1) for j in range(-pad, pad + 1) if i or j
+    ]
+
+    for i in range(pad, s_curr.shape[0] - pad):
+        for j in range(pad, s_curr.shape[1] - pad):
+            sample = s_curr[i, j]
+            for neigh in neighs:
+                ni, nj = neigh[0] + i, neigh[1] + j
+                maxima = sample > s_curr[ni, nj] \
+                    and sample > s_prev[ni, nj] and sample > s_next[ni, nj]
+                minima = sample < s_curr[ni, nj] \
+                    and sample < s_prev[ni, nj] and sample < s_next[ni, nj]
+                if not maxima and not minima:
+                    break
+            if maxima or minima:
+                candidates[i, j] = sample 
+    return candidates
