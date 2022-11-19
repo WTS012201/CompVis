@@ -1,4 +1,5 @@
 import math
+from types import DynamicClassAttribute
 from typing import Any, Tuple, Union
 from collections.abc import Callable
 import cv2 as cv
@@ -6,6 +7,7 @@ import numpy as np
 import inspect
 import copy
 from matplotlib import pyplot as plt
+from numpy.linalg import inv
 
 class Splitter:
     def __init__(
@@ -100,10 +102,10 @@ class Splitter:
 
     def draw_splits(
         self,
-        rects: bool = False,   # use rects to represent split draw
-        mod_orig: bool = False,# modfiy original splits
-        color: tuple = (255, 0, 0),    # color of line/rect
-        alpha: float = 0.25     # opacity of rect
+        rects: bool = False,   
+        mod_orig: bool = False,
+        color: tuple = (255, 0, 0),    
+        alpha: float = 0.25     
     ):
         c_ss = self.split_size
 
@@ -148,6 +150,12 @@ class Splitter:
         showspec_kw = {k : kwargs[k] for k, v in showspec_kw.items() if k in kwargs}
         
         self.mod_splits = self.mod_splits
+
+        if isinstance(rrows, int):
+            rrows = [rrows]
+        if isinstance(rcols, int):
+            rcols = [rcols]
+
         rows = len(rrows) if rrows else len(self.mod_splits)
         cols = len(rcols) if rcols else len(self.mod_splits[0])
         _, axes = plt.subplots(rows, cols, figsize=(20,20))
@@ -272,7 +280,7 @@ def trim_padding(img: np.ndarray):
     return img
 
 def SIFT(
-    img, min_s=0, flags=cv.DrawMatchesFlags_DEFAULT, color=-1, SIFT_draw=True
+    img, min_s=0, flags=cv.DrawMatchesFlags_DEFAULT, color=-1, SIFT_draw=False
 ):
     sift = cv.SIFT_create()
     c_img = img.copy()
@@ -281,7 +289,7 @@ def SIFT(
     kp_des = [v for v in zip(kp, des) if v[0].size >= min_s]
     [kp, des] = zip(*kp_des)
     if SIFT_draw:
-        img = cv.drawKeypoints(c_img, kp, img, color=color,flags=flags)
+        img = cv.drawKeypoints(c_img, kp, img, color=(0,255,0),flags=flags)
     else:
         img = c_img
 
@@ -487,7 +495,8 @@ def extrema_detection(scale_space):
     candidates = np.full_like(s_curr, fill_value=0)
     pad = 1
     neighs = [
-        (i,j) for i in range(-pad, pad + 1) for j in range(-pad, pad + 1) if i or j
+        (i,j) for i in range(-pad, pad + 1)
+            for j in range(-pad, pad + 1) if i or j
     ]
 
     for i in range(pad, s_curr.shape[0] - pad):
@@ -504,3 +513,44 @@ def extrema_detection(scale_space):
             if maxima or minima:
                 candidates[i, j] = sample 
     return candidates
+
+def keypoint_inter(octave, cands, max_it=5):
+    res = []
+
+    for cand in cands:
+        (sigma, x, y) = cand
+
+        for i in range(max_it):
+            s_prev, s_curr, s_next = octave[sigma - 1:sigma + 2]
+            neighborhood = np.stack([
+                s_prev[y - 1:y + 2, x - 1:x + 2],
+                s_curr[y - 1:y + 2, x - 1:x + 2],
+                s_next[y - 1:y + 2, x - 1:x + 2],
+            ], dtype=np.float32)
+            offset, contrast = quad_inter(neighborhood)
+
+def quad_inter(neigh):
+    # Compute first deriv (Gradient) in Taylor series on candidate
+    dx = (neigh[1, 1, 2] - neigh[1, 1, 0]) / 2
+    dy = (neigh[1, 2, 1] - neigh[1, 0, 1]) / 2
+    ds = (neigh[2, 1, 1] - neigh[0, 1, 1]) / 2
+    grad = np.array([dx, dy, ds])
+
+    # Compute second deriv (Hessian) in Taylor series on candidate
+    candidate = neigh[1, 1, 1]
+    dxx = neigh[1, 1, 2] - 2 * candidate + neigh[1, 1, 0]
+    dyy = neigh[1, 2, 1] - 2 * candidate + neigh[1, 0, 1]
+    dss = neigh[2, 1, 1] - 2 * candidate + neigh[0, 1, 1]
+    dxy = (neigh[1, 2, 2] - neigh[1, 2, 0] - neigh[1, 0, 2] + neigh[1, 0, 0]) / 4
+    dxs = (neigh[2, 1, 2] - neigh[2, 1, 0] - neigh[0, 1, 2] + neigh[0, 1, 0]) / 4
+    dys = (neigh[2, 2, 1] - neigh[2, 0, 1] - neigh[0, 2, 1] + neigh[0, 0, 1]) / 4
+    hess = np.array([
+        [dxx, dxy, dxs], 
+        [dxy, dyy, dys],
+        [dxs, dys, dss]
+    ])
+
+    # solve for offset using
+    z = inv(hess).dot(grad)
+
+    return z
