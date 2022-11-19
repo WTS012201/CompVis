@@ -490,14 +490,15 @@ def gen_octave(img, n, sigma = 1, k = math.sqrt(2)):
     
     return octave 
 
-def extrema_detection(scale_space):
-    s_prev, s_curr, s_next = scale_space
-    candidates = np.full_like(s_curr, fill_value=0)
+def extrema_detection(DoGs, sigma):
+    s_prev, s_curr, s_next = DoGs[sigma - 1:sigma + 2]
+    candidate_map = np.full_like(s_curr, fill_value=0)
     pad = 1
     neighs = [
         (i,j) for i in range(-pad, pad + 1)
             for j in range(-pad, pad + 1) if i or j
     ]
+    candidates = []
 
     for i in range(pad, s_curr.shape[0] - pad):
         for j in range(pad, s_curr.shape[1] - pad):
@@ -511,22 +512,24 @@ def extrema_detection(scale_space):
                 if not maxima and not minima:
                     break
             if maxima or minima:
-                candidates[i, j] = sample 
-    return candidates
+                candidate_map[i, j] = sample 
+                candidates.append((sigma, j, i))
 
-def keypoint_inter(octave, cands, max_it=5):
+    return candidate_map, candidates
+
+def keypoint_inter(DoGs, cands, max_it=5):
     res = []
 
     for cand in cands:
         (sigma, x, y) = cand
 
         for i in range(max_it):
-            s_prev, s_curr, s_next = octave[sigma - 1:sigma + 2]
+            s_prev, s_curr, s_next = DoGs[sigma - 1:sigma + 2]
             neighborhood = np.stack([
                 s_prev[y - 1:y + 2, x - 1:x + 2],
                 s_curr[y - 1:y + 2, x - 1:x + 2],
                 s_next[y - 1:y + 2, x - 1:x + 2],
-            ], dtype=np.float32)
+            ], dtype=np.float32) / 255
             offset, contrast = quad_inter(neighborhood)
 
 def quad_inter(neigh):
@@ -550,7 +553,8 @@ def quad_inter(neigh):
         [dxs, dys, dss]
     ])
 
-    # solve for offset using
-    z = inv(hess).dot(grad)
+    # Solve for offset and contrast
+    z_hat = np.linalg.inv(hess).dot(grad)
+    contrast = candidate + grad.T.dot(z_hat) / 2  
 
-    return z
+    return z_hat, contrast
