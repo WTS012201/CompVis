@@ -513,7 +513,7 @@ def extrema_detection(DoGs, sigma):
                     break
             if maxima or minima:
                 candidate_map[i, j] = sample 
-                candidates.append((sigma, j, i))
+                candidates.append((j, i, sigma))
 
     return candidate_map, candidates
 
