@@ -7,7 +7,6 @@ import numpy as np
 import inspect
 import copy
 from matplotlib import pyplot as plt
-from numpy.linalg import inv
 
 class Splitter:
     def __init__(
@@ -594,3 +593,33 @@ def second_order_TE_inter(neigh):
     contrast = candidate + grad.T.dot(z_hat) / 2
 
     return z_hat, contrast
+
+
+def elim_edge_responses(DoGs, cands, r=10):
+    refined = []
+
+    for cand in cands:
+        (x, y, _, s) = cand
+        neigh = DoGs[s][y - 1:y + 2, x - 1:x + 2].astype(np.float32) / 255
+
+        dxx = neigh[1, 2] - 2 * neigh[1, 1] + neigh[1, 0]
+        dyy = neigh[2, 1] - 2 * neigh[1, 1] + neigh[0, 1]
+        dxy = (neigh[2, 2] - neigh[2, 0] - neigh[0, 2] + neigh[0, 0]) / 4
+
+        H = np.array([
+            [dxx, dxy],
+            [dxy, dyy]
+        ])
+        tr_H, det_H = np.trace(H), np.linalg.det(H)
+ 
+        # lhs = det_H > 0 and r
+        lhs = r * (tr_H ** 2)
+        rhs = ((r + 1) ** 2) * det_H
+
+        if lhs < rhs:
+            refined.append(cand)
+        
+    refined_map = np.full_like(DoGs[0], fill_value=0)
+    for p in refined:
+        refined_map[p[1], p[0]] = p[2] * 255
+    return refined_map, refined
