@@ -518,28 +518,60 @@ def extrema_detection(DoGs, sigma):
     return candidate_map, candidates
 
 def keypoint_inter(DoGs, cands, max_it=5):
-    res = []
+    refined = []
 
     for cand in cands:
-        (sigma, x, y) = cand
+        (x, y, s) = cand
+        in_neigh, outside = False, False
 
         for i in range(max_it):
-            s_prev, s_curr, s_next = DoGs[sigma - 1:sigma + 2]
+            s_prev, s_curr, s_next = DoGs[s - 1:s + 2]
             neighborhood = np.stack([
                 s_prev[y - 1:y + 2, x - 1:x + 2],
                 s_curr[y - 1:y + 2, x - 1:x + 2],
                 s_next[y - 1:y + 2, x - 1:x + 2],
-            ], dtype=np.float32) / 255
-            offset, contrast = quad_inter(neighborhood)
+            ]).astype(np.float32) / 255
 
-def quad_inter(neigh):
-    # Compute first deriv (Gradient) in Taylor series on candidate
+            # calculate extremum in the second order Taylor expansion
+            offset, contrast = second_order_TE_inter(neighborhood)
+
+            in_neigh = abs(offset[0]) < 0.5 
+            in_neigh &= abs(offset[1]) < 0.5 
+            in_neigh &= abs(offset[2]) < 0.5 
+
+            # stop if the extremum is in the neighborhood
+            if in_neigh: break
+
+            # update extremum
+            x += int(round(offset[0]))
+            y += int(round(offset[1]))
+            s += int(round(offset[2]))
+
+            outside = (x < 1 or x >= s_curr.shape[1] - 1) 
+            outside |= (y < 1 or y >= s_curr.shape[0] - 1)
+            outside |= (s < 1 or s >= len(DoGs) - 1)
+
+            # discard if extremum is outside the image or scale-space
+            if outside: break
+
+        if not in_neigh or outside or abs(contrast) < 0.03:
+            continue
+        else:
+            refined.append((x, y, contrast, s))
+
+    refined_map = np.full_like(DoGs[0], fill_value=0)
+    for p in refined:
+        refined_map[p[1], p[0]] = p[2] * 255 
+    return refined_map, refined
+
+def second_order_TE_inter(neigh):
+    # Compute first deriv (Gradient) in Taylor series on sample kp
     dx = (neigh[1, 1, 2] - neigh[1, 1, 0]) / 2
     dy = (neigh[1, 2, 1] - neigh[1, 0, 1]) / 2
     ds = (neigh[2, 1, 1] - neigh[0, 1, 1]) / 2
     grad = np.array([dx, dy, ds])
 
-    # Compute second deriv (Hessian) in Taylor series on candidate
+    # Compute second deriv (Hessian) in Taylor series on sample kp
     candidate = neigh[1, 1, 1]
     dxx = neigh[1, 1, 2] - 2 * candidate + neigh[1, 1, 0]
     dyy = neigh[1, 2, 1] - 2 * candidate + neigh[1, 0, 1]
@@ -553,8 +585,12 @@ def quad_inter(neigh):
         [dxs, dys, dss]
     ])
 
-    # Solve for offset and contrast
-    z_hat = np.linalg.inv(hess).dot(grad)
-    contrast = candidate + grad.T.dot(z_hat) / 2  
+    # Avoid inverting singular matrix
+    if np.linalg.det(hess) == 0:
+        return np.zeros(shape=3), 0 
+
+    # Solve for extremum and get the contrast at that point
+    z_hat = -np.linalg.inv(hess).dot(grad)
+    contrast = candidate + grad.T.dot(z_hat) / 2
 
     return z_hat, contrast
