@@ -567,13 +567,13 @@ def keypoint_inter(DoGs, cands, max_it=5, con_thresh=0.03):
     return refined_map, refined
 
 def second_order_TE_inter(neigh):
-    # Compute first deriv (Gradient) in Taylor series on sample kp
+    # Compute first deriv (Gradient) in Taylor series on sample kp with adjacent pixels
     dx = (neigh[1, 1, 2] - neigh[1, 1, 0]) / 2
     dy = (neigh[1, 2, 1] - neigh[1, 0, 1]) / 2
     ds = (neigh[2, 1, 1] - neigh[0, 1, 1]) / 2
     grad = np.array([dx, dy, ds])
 
-    # Compute second deriv (Hessian) in Taylor series on sample kp
+    # Compute second deriv (Hessian) in Taylor series on sample kp with adjacent pixels
     candidate = neigh[1, 1, 1]
     dxx = neigh[1, 1, 2] - 2 * candidate + neigh[1, 1, 0]
     dyy = neigh[1, 2, 1] - 2 * candidate + neigh[1, 0, 1]
