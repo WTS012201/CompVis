@@ -516,7 +516,7 @@ def extrema_detection(DoGs, s_idx):
 
     return candidate_map, candidates
 
-def keypoint_inter(DoGs, cands, max_it=5):
+def keypoint_inter(DoGs, cands, max_it=5, con_thresh=0.03):
     refined = []
 
     for cand in cands:
@@ -553,7 +553,7 @@ def keypoint_inter(DoGs, cands, max_it=5):
             # discard if extremum is outside the image or scale-space
             if outside: break
 
-        if not in_neigh or outside or abs(contrast) < 0.03:
+        if not in_neigh or outside or abs(contrast) < con_thresh:
             continue
         else:
             x += int(round(offset[0]))
