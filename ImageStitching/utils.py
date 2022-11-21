@@ -489,8 +489,8 @@ def gen_octave(img, n, sigma = 1, k = math.sqrt(2)):
     
     return octave 
 
-def extrema_detection(DoGs, sigma):
-    s_prev, s_curr, s_next = DoGs[sigma - 1:sigma + 2]
+def extrema_detection(DoGs, s_idx):
+    s_prev, s_curr, s_next = DoGs[s_idx - 1:s_idx + 2]
     candidate_map = np.full_like(s_curr, fill_value=0)
     pad = 1
     neighs = [
@@ -512,7 +512,7 @@ def extrema_detection(DoGs, sigma):
                     break
             if maxima or minima:
                 candidate_map[i, j] = sample 
-                candidates.append((j, i, sigma))
+                candidates.append((j, i, s_idx))
 
     return candidate_map, candidates
 
@@ -556,11 +556,14 @@ def keypoint_inter(DoGs, cands, max_it=5):
         if not in_neigh or outside or abs(contrast) < 0.03:
             continue
         else:
-            refined.append((x, y, contrast, s))
+            x += int(round(offset[0]))
+            y += int(round(offset[1]))
+            s += int(round(offset[2]))
+            refined.append((x, y, s, abs(contrast)))
 
     refined_map = np.full_like(DoGs[0], fill_value=0)
     for p in refined:
-        refined_map[p[1], p[0]] = p[2] * 255 
+        refined_map[p[1], p[0]] = p[3] * 255 
     return refined_map, refined
 
 def second_order_TE_inter(neigh):
@@ -599,7 +602,7 @@ def elim_edge_responses(DoGs, cands, r=10):
     refined = []
 
     for cand in cands:
-        (x, y, _, s) = cand
+        (x, y, s, _) = cand
         neigh = DoGs[s][y - 1:y + 2, x - 1:x + 2].astype(np.float32) / 255
 
         dxx = neigh[1, 2] - 2 * neigh[1, 1] + neigh[1, 0]
@@ -612,7 +615,6 @@ def elim_edge_responses(DoGs, cands, r=10):
         ])
         tr_H, det_H = np.trace(H), np.linalg.det(H)
  
-        # lhs = det_H > 0 and r
         lhs = r * (tr_H ** 2)
         rhs = ((r + 1) ** 2) * det_H
 
@@ -621,5 +623,20 @@ def elim_edge_responses(DoGs, cands, r=10):
         
     refined_map = np.full_like(DoGs[0], fill_value=0)
     for p in refined:
-        refined_map[p[1], p[0]] = p[2] * 255
+        refined_map[p[1], p[0]] = p[3] * 255
     return refined_map, refined
+
+
+def gen_ori(keypoints, octaves, o_idx, k):
+    descriptors = []
+    bins = 36
+    rad = 3 * scale
+    peak = 0.8
+    shape = octaves[o_idx].shape
+
+    hist, norm_hist = np.zeros(bins), np.zeros(bins)
+
+    for kp in keypoints:
+        pass
+
+    return descriptors
