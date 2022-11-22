@@ -640,3 +640,149 @@ def gen_ori(keypoints, octaves, o_idx, k):
         pass
 
     return descriptors
+
+N_BINS = 36         # number of bins in gradient histogram
+LAMBDA_ORI = 1.5    # scale the reach of the gradient distribution
+T = 0.80            # threshold for considering local maxima in the gradient orientation histogram
+R = 3               # Radius of the gaussian window
+
+def gen_hist(kp, scale, octave, o_idx):
+    hist = np.zeros(N_BINS)
+    gauss_img = octave[int(kp.size)] / 255
+    shape = gauss_img.shape
+    rad = int(round(R * scale))
+    weight = -0.5 / (scale ** 2)
+
+    for y_shift in range(-rad, rad + 1):
+        y_r = int(round(kp.pt[1]) / float(2 ** o_idx)) + y_shift
+        if y_r < 1 or y_r >= shape[0] - 2:
+            continue
+        for x_shift in range(-rad, rad + 1):
+            x_r = int(round(kp.pt[0]) / float(2 ** o_idx)) + x_shift
+            if x_r < 1 or x_r >= shape[1] - 1:
+                continue
+            # compute gradient magnitudes and orientation from the current patch
+            dx = gauss_img[y_r, x_r + 1] - gauss_img[y_r, x_r - 1]
+            dy = gauss_img[y_r + 1, x_r] - gauss_img[y_r - 1, x_r]
+            mag = math.sqrt(dx ** 2 + dy ** 2)
+            ori = np.rad2deg(np.arctan2(dy, dx))
+
+            # compute sample contribution weight and bin index, then place in hist
+            con = np.exp(-(x_shift ** 2 + y_shift ** 2) / (2 * scale ** 2))
+            bin_idx = int(round(ori * N_BINS / 360.))
+            hist[bin_idx % N_BINS] += con * mag
+    
+    return hist
+
+def smooth_hist(hist):
+    smooth = []
+
+    ## Apply 'six times' circular convolution with a three-tap box filter on neighboring bins
+    for i in range(N_BINS):
+        smooth_mag = 6 * hist[i] + 4 * (hist[i - 1] + hist[(i + 1) % N_BINS])
+        smooth_mag += hist[i - 2] + hist[(i + 2) % N_BINS]
+        smooth_mag /= 16.
+        smooth.append(smooth_mag)
+
+    return smooth
+
+def compute_reference(kp, smooth):
+    max_ori = max(smooth)
+
+    # sample window
+    band = (smooth > np.roll(smooth, 1), smooth > np.roll(smooth, -1))
+    peaks = np.where(band[0] & band[1])[0]
+
+    ori_kps = []
+    # Extract the reference orientations
+    for p_idx in peaks:
+        p_val = smooth[p_idx]
+        if p_val < T * max_ori:
+            continue
+        l_val = smooth[(p_idx - 1) % N_BINS]
+        r_val = smooth[(p_idx + 1) % N_BINS]
+
+        # compute the reference index
+        norm_p_idx = p_idx + 0.5 * (l_val - r_val)
+        norm_p_idx /= l_val - 2 * p_val + r_val
+        norm_p_idx %= N_BINS
+
+        # compute the reference orientation
+        ori = 360. - norm_p_idx * 360. / N_BINS
+        ori_kp = cv.KeyPoint(*kp.pt, kp.size, ori, kp.response, kp.octave)
+        ori_kps.append(ori_kp)
+
+    return ori_kps
+
+def compute_orientations(keypoints, octaves, o_idx, k):
+    octave = octaves[o_idx]
+    kps, hists = [], []
+
+    for kp in keypoints:
+        scale = LAMBDA_ORI * kp.size / (2 ** o_idx)
+
+        hist = gen_hist(kp, scale, octave, o_idx)
+        smooth = smooth_hist(hist)
+        ori_kps = compute_reference(kp, smooth)
+
+        kps += ori_kps
+        hists.append((hist, smooth))
+
+    return hists, kps
+
+def show_hist(hist, title):
+    degrees = [str(deg * 10) + '-' + str(deg * 10 + 10) for deg in range(36)]
+    plt.figure(figsize=(20,10))
+    plt.bar(degrees, hist)
+    plt.title(title, fontsize=20)
+    plt.xlabel("Orientation angle", fontsize=16)
+    plt.ylabel("Magnitude", fontsize=16)
+    plt.xticks(degrees, rotation='vertical')
+    plt.show()
+
+def show_patch_structure(
+    sample_hists, octaves, sample_kp, sample_oct_idx, sample_scale_idx
+):
+    scale = LAMBDA_ORI * sample_kp.size / (2 ** sample_oct_idx)
+    rad = int(round(R * scale))
+    (x, y) = sample_kp.pt
+    x, y = int(x), int(y)
+
+    sample_img = octaves[sample_oct_idx][sample_scale_idx].copy()
+
+    shape = sample_img.shape
+    left = int(x / float(2 ** sample_oct_idx)) - rad
+    left = left if left > 0 else 0
+    right = int(x / float(2 ** sample_oct_idx)) + rad
+    right = right if right < shape[1] else shape[1] - 1
+
+    top = int(y / float(2 ** sample_oct_idx)) - rad
+    top = top if top > 0 else 0
+    bot = int(y / float(2 ** sample_oct_idx)) + rad
+    bot = bot if bot < shape[1] else shape[1] - 1
+
+    # This is roughly the same as how we computed the angle and grad mags for orientation
+    sample_patch = sample_img[top:bot, left:right].copy()
+    gradx = cv.Sobel(sample_patch, cv.CV_64F, 1, 0, ksize=1)
+    grady = cv.Sobel(sample_patch, cv.CV_64F, 0, 1, ksize=1)
+    norm, angle = cv.cartToPolar(gradx, grady, angleInDegrees=True)
+
+    plt.figure(figsize=(20, 20))
+
+    # display the image
+    plt.subplot(1,2,1)
+    plt.imshow(sample_patch, cmap='gray', origin='lower')
+    plt.subplot(1,2,2)
+    plt.imshow(norm, cmap='gray', origin='lower')
+    q = plt.quiver(gradx, grady, color='blue')
+    plt.show()
+
+    sample_img = cv.cvtColor(sample_img, cv.COLOR_GRAY2RGB)
+    b_w = 1
+    left = left - b_w if left - b_w > 0 else 0
+    right = right + b_w if right + b_w < shape[1] else shape[1] - 1
+    top = top - b_w if top - b_w > 0 else 0
+    bot = bot + b_w if bot + b_w < shape[1] else shape[1] - 1
+    cv.rectangle(sample_img, (left, bot), (right, top), (0, 255, 0), b_w * 2)
+    plt.figure(figsize=(10, 10))
+    plt.imshow(sample_img)
