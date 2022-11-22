@@ -627,19 +627,18 @@ def elim_edge_responses(DoGs, cands, r=10):
     return refined_map, refined
 
 
-def gen_ori(keypoints, octaves, o_idx, k):
-    descriptors = []
-    bins = 36
-    rad = 3 * scale
-    peak = 0.8
-    shape = octaves[o_idx].shape
-
-    hist, norm_hist = np.zeros(bins), np.zeros(bins)
-
-    for kp in keypoints:
-        pass
-
-    return descriptors
+#  convert kps to absolute coordinates
+def convert_keypoints(keypoints, o_idx, o_size, sigma, k):
+    a_kps = []
+    for (x, y, contrast, s_idx) in keypoints:
+        # adjusted diameter of the neighborhood 
+        sa = sigma * (2 ** (s_idx / float(o_size))) * k ** s_idx 
+        # adjust the point
+        pa = (x * (2 ** o_idx), y * (2 ** o_idx)) 
+        kp = cv.KeyPoint(*pa, size=sa, response=contrast, octave=o_idx)
+        a_kps.append(kp)
+        
+    return a_kps
 
 N_BINS = 36         # number of bins in gradient histogram
 LAMBDA_ORI = 1.5    # scale the reach of the gradient distribution
