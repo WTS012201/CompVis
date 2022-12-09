@@ -489,10 +489,36 @@ def gen_octave(img, n, sigma = 1, k = math.sqrt(2)):
     
     return octave 
 
+def gen_octaves(img, n_octaves, oct_size):
+    octaves = []
+
+    for i in range(n_octaves):
+        octave = gen_octave(img, oct_size)
+        img = cv.resize(img, (img.shape[0] // 2, img.shape[0] // 2))
+        octaves.append(octave)
+    
+    return octaves 
+
+def gen_DoGs(octave):
+    # Convert to grayscale before taking the difference
+    for i, scale in enumerate(octave):
+        octave[i] = cv.cvtColor(scale, cv.COLOR_BGR2GRAY)
+
+    DoGs = []
+    for i in range(len(octave ) - 1):
+        sub_img = octave[i + 1] - octave[i]
+        DoGs.append(sub_img)
+
+    return DoGs
+
 def extrema_detection(DoGs, s_idx):
+    # Using neighboring scales
     s_prev, s_curr, s_next = DoGs[s_idx - 1:s_idx + 2]
+
     candidate_map = np.full_like(s_curr, fill_value=0)
     pad = 1
+
+    # Reference for neighboring points
     neighs = [
         (i,j) for i in range(-pad, pad + 1)
             for j in range(-pad, pad + 1) if i or j
@@ -630,7 +656,7 @@ def elim_edge_responses(DoGs, cands, r=10):
 #  convert kps to absolute coordinates
 def convert_keypoints(keypoints, o_idx, o_size, sigma, k):
     a_kps = []
-    for (x, y, contrast, s_idx) in keypoints:
+    for (x, y, s_idx, contrast) in keypoints:
         # adjusted diameter of the neighborhood 
         sa = sigma * (2 ** (s_idx / float(o_size))) * k ** s_idx 
         # adjust the point
@@ -650,7 +676,6 @@ def gen_hist(kp, scale, octave, o_idx):
     gauss_img = octave[int(kp.size)] / 255
     shape = gauss_img.shape
     rad = int(round(R * scale))
-    weight = -0.5 / (scale ** 2)
 
     for y_shift in range(-rad, rad + 1):
         y_r = int(round(kp.pt[1]) / float(2 ** o_idx)) + y_shift
@@ -731,8 +756,11 @@ def compute_orientations(keypoints, octaves, o_idx, k):
 
 def show_hist(hist, title):
     degrees = [str(deg * 10) + '-' + str(deg * 10 + 10) for deg in range(36)]
+    max_b = max(hist)
+    colors = ["green" if h >= max_b * T else "red" for h in hist]
+
     plt.figure(figsize=(20,10))
-    plt.bar(degrees, hist)
+    plt.bar(degrees, hist, color=colors)
     plt.title(title, fontsize=20)
     plt.xlabel("Orientation angle", fontsize=16)
     plt.ylabel("Magnitude", fontsize=16)
