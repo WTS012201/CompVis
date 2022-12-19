@@ -701,7 +701,6 @@ def gen_hist(kp, scale, octave, o_idx):
 def smooth_hist(hist):
     smooth = []
 
-    ## Apply 'six times' circular convolution with a three-tap box filter on neighboring bins
     for i in range(N_BINS):
         smooth_mag = 6 * hist[i] + 4 * (hist[i - 1] + hist[(i + 1) % N_BINS])
         smooth_mag += hist[i - 2] + hist[(i + 2) % N_BINS]
@@ -768,7 +767,7 @@ def show_hist(hist, title):
     plt.show()
 
 def show_patch_structure(
-    sample_hists, octaves, sample_kp, sample_oct_idx, sample_scale_idx
+    octaves, sample_kp, sample_oct_idx, sample_scale_idx
 ):
     scale = LAMBDA_ORI * sample_kp.size / (2 ** sample_oct_idx)
     rad = int(round(R * scale))
@@ -813,3 +812,128 @@ def show_patch_structure(
     cv.rectangle(sample_img, (left, bot), (right, top), (0, 255, 0), b_w * 2)
     plt.figure(figsize=(10, 10))
     plt.imshow(sample_img)
+
+N_HISTS = 4
+N_ORI = 8
+LAMBDA_DESC = 3
+SATURATE = 0.2
+
+def accum_hists(kp, octaves, oct_idx, scale_idx):
+    # sample varibales
+    gauss_img = octaves[oct_idx][scale_idx] / 255
+    num_rows, num_cols = gauss_img.shape
+    pt = np.round(kp.size * np.array(kp.pt)).astype(int)
+    deg = N_HISTS / 360.
+    cos_angle = np.cos(np.deg2rad(kp.angle))
+    sin_angle = np.sin(np.deg2rad(kp.angle))
+    weight = -0.5 / ((0.5 * N_HISTS) ** 2)
+
+    # compute the region boundary for the histogram of the normalized patch
+    hist_size = LAMBDA_DESC * 0.5 * kp.size
+    r = int(round(hist_size * np.sqrt(2) * (N_HISTS + 1) * 0.5))   
+    r = int(min(r, np.sqrt(num_rows ** 2 + num_cols ** 2)))
+
+    # accumulate samples of normalized patch for the bins
+    accum = []
+    for y in range(-r, r + 1):
+        for x in range(-r, r + 1):
+            # compute normalized coordinates
+            y_ori = x * sin_angle + y * cos_angle
+            x_ori = x * cos_angle - y * sin_angle
+            y_bin = (y_ori / hist_size) + 0.5 * N_HISTS - 0.5
+            x_bin = (x_ori / hist_size) + 0.5 * N_HISTS - 0.5
+
+            # verify if sample belongs in a bin
+            valid_bin = y_bin > -1 and y_bin < N_HISTS 
+            valid_bin &= x_bin > -1 and x_bin < N_HISTS
+            if not valid_bin:
+                continue
+
+            # verify if sample is in the patch
+            r_patch = int(round(pt[1] + y))
+            c_patch = int(round(pt[0] + x))
+            in_patch = r_patch > 0 and r_patch < num_rows - 1 
+            in_patch &= c_patch > 0 and c_patch < num_cols - 1
+            if not in_patch:
+                continue
+
+            # compute normalized gradient orientation
+            dx = gauss_img[r_patch, c_patch + 1] \
+                - gauss_img[r_patch, c_patch - 1]
+            dy = gauss_img[r_patch - 1, c_patch] \
+                - gauss_img[r_patch + 1, c_patch]
+            grad_mag = np.sqrt(dx ** 2 + dy ** 2)
+            grad_ori = np.rad2deg(np.arctan2(dy, dx)) % 360
+
+            # compute contribution of the sample
+            con = np.exp(
+                weight * (
+                    (y_ori / hist_size) ** 2 + (x_ori / hist_size) ** 2
+                )
+            )
+            mag = con * grad_mag
+            ori = (grad_ori - kp.angle) * deg
+
+            accum.append((y_bin, x_bin, mag, ori))
+    return accum
+
+def trilinear_inter(accum):
+    hist = np.zeros((N_HISTS + 2, N_HISTS + 2, N_ORI))
+    for (r_bin, c_bin, mag, o_bin) in accum:
+        r_idx, c_idx, o_idx = np.floor([r_bin, c_bin, o_bin]).astype(int)
+        row_diff, col_diff, ori_diff = \
+            r_bin - r_idx, c_bin - c_idx, o_bin - o_idx
+
+        if o_idx < 0:
+            o_idx += N_ORI
+        if o_idx >= N_ORI:
+            o_idx -= N_ORI
+
+        # update the eight values
+        pt1 = mag * row_diff * col_diff * ori_diff
+        pt2 = mag * row_diff * col_diff * (1 - ori_diff)
+        pt3 = mag * row_diff * (1 - col_diff) * ori_diff
+        pt4 = mag * row_diff * (1 - col_diff) * (1 - ori_diff)
+        pt5 = mag * (1 - row_diff) * col_diff * ori_diff
+        pt6 = mag * (1 - row_diff) * col_diff * (1 - ori_diff)
+        pt7 = mag * (1 - row_diff) * (1 - col_diff) * ori_diff
+        pt8 = mag * (1 - row_diff) * (1 - col_diff) * (1 - ori_diff)
+
+        hist[r_idx + 1, c_idx + 1, o_idx] += pt8
+        hist[r_idx + 1, c_idx + 1, (o_idx + 1) % N_ORI] += pt7
+        hist[r_idx + 1, c_idx + 2, o_idx] += pt6
+        hist[r_idx + 1, c_idx + 2, (o_idx + 1) % N_ORI] += pt5
+        hist[r_idx + 2, c_idx + 1, o_idx] += pt4
+        hist[r_idx + 2, c_idx + 1, (o_idx + 1) % N_ORI] += pt3
+        hist[r_idx + 2, c_idx + 2, o_idx] += pt2
+        hist[r_idx + 2, c_idx + 2, (o_idx + 1) % N_ORI] += pt1
+    return hist
+
+def gen_descriptors(keypoints, octaves, oct_idx, scale_idx):
+    descriptors = []
+    samples = []
+
+    for kp in keypoints:
+        # accumlate the histograms
+        accum = accum_hists(kp, octaves, oct_idx, scale_idx)
+
+        # apply trilinear interpolation
+        hist = trilinear_inter(accum)
+
+        # build the feature vector
+        sample_hist = hist[1:-1, 1:-1, :] 
+        f = sample_hist.flatten()
+        # normalize and saturate feature vector 
+        threshold = np.linalg.norm(f) * SATURATE
+        f[f > threshold] = threshold
+        f /= max(np.linalg.norm(f), 1e-7)
+
+        # renormalize and quantize into 8 bit integer
+        f = np.round(512 * f)
+        f[f < 0], f[f > 255] = 0, 255
+        descriptors.append(f)
+
+    for sample in descriptors:
+        samples.append(sample.reshape(4, 4, 8))
+
+    return np.array(descriptors, dtype=np.uint8), samples
