@@ -5,11 +5,12 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import torch.nn as nn
 
+
 class AnyDataset(Dataset):
     def __init__(
-            self, path, labels_path=None,
-            transform_orig=None, transform_seg=None
-        ):
+        self, path, labels_path=None,
+        transform_orig=None, transform_seg=None
+    ):
         self.images_path = path
         self.labels_path = labels_path
         self.transform_img = transform_orig
@@ -24,30 +25,34 @@ class AnyDataset(Dataset):
             mask = plt.imread(self.labels_path[idx])
         image = img[:, :int(img.shape[1]/2)] if not self.labels_path else img
         label = img[:, int(img.shape[1]/2):] if not self.labels_path else mask
-        
-    
+
         if self.transform_img:
             image = self.transform_img(image)
-            
+
         if self.transform_label:
             label = self.transform_label(label)
-            
+
         return image, label
 
-def show(img, pred, label, batch_idx=0):
+
+def show(img, pred, label, save_path, epoch, batch_idx=0):
     img, pred, label = img.cpu(), pred.cpu(), label.cpu()
-    fig,ax = plt.subplots(1, 3, figsize=(10,10))
-    
+    fig, ax = plt.subplots(1, 3, figsize=(10, 10))
+
     img, pred, label = img[batch_idx], pred[batch_idx], label[batch_idx]
-    _img, _pred = img, pred.detach().permute(1,2,0).numpy()
-    ax[0].imshow(_img.permute(1,2,0))
+    _img, _pred = img, pred.detach().permute(1, 2, 0).numpy()
+    ax[0].imshow(_img.permute(1, 2, 0))
     ax[1].imshow(_pred)
-    ax[2].imshow(label.permute(1,2,0))
+    ax[2].imshow(label.permute(1, 2, 0))
+
+    if save_path:
+        plt.savefig(f"{save_path}{epoch}") 
     plt.show()
 
 
 def train(model, train_data, val_data, criterion, optimizer,
-        epochs=50, batch_size=8, show_every=20):
+        epochs=50, batch_size=8, show_every=10,
+        save_path=None):
     train_loader = DataLoader(train_data, batch_size)
     valid_loader = DataLoader(val_data, 1)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -56,7 +61,7 @@ def train(model, train_data, val_data, criterion, optimizer,
 
     for i in range(1, epochs + 1):
         running_loss = 0
-        
+
         for img, label in tqdm(train_loader):
             optimizer.zero_grad()
             img = img.to(device)
@@ -66,7 +71,7 @@ def train(model, train_data, val_data, criterion, optimizer,
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-        train_loss.append(round(running_loss / len(train_loader), 6))    
+        train_loss.append(round(running_loss / len(train_loader), 6))
 
         model.eval()
         running_loss = 0
@@ -77,7 +82,7 @@ def train(model, train_data, val_data, criterion, optimizer,
             loss = criterion(pred, label)
             running_loss += loss.item()
         model.train()
-        val_loss.append(round(running_loss / len(valid_loader), 6))    
+        val_loss.append(round(running_loss / len(valid_loader), 6))
 
         print(
             f"epoch : {i}",
@@ -85,6 +90,6 @@ def train(model, train_data, val_data, criterion, optimizer,
             f"valid loss : {val_loss[-1]},"
         )
         if not i % show_every or i == 1:
-            show(img, pred, label)
+            show(img, pred, label, save_path, i)
 
-    return train_loss, val_loss, 
+    return train_loss, val_loss,
