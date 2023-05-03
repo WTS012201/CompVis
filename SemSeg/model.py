@@ -28,6 +28,7 @@ class UNet(nn.Module):
         self.conv2 = Convblock(32,64)
         self.conv3 = Convblock(64,128)
         self.conv4 = Convblock(128,256)
+        self.dropout1 = nn.Dropout(p=0.2)
         self.neck = nn.Conv2d(256,512,3,1)
         self.upconv4 = nn.ConvTranspose2d(512,256,3,2,0,1)
         self.dconv4 = Convblock(512,256)
@@ -37,7 +38,9 @@ class UNet(nn.Module):
         self.dconv2 = Convblock(128,64)
         self.upconv1 = nn.ConvTranspose2d(64,32,3,2,0,1)
         self.dconv1 = Convblock(64,32)
+        self.dropout2 = nn.Dropout(p=0.2)
         self.out = nn.Conv2d(32,3,1,1)
+
         self.retain = retain
         
     def forward(self,x):
@@ -52,8 +55,9 @@ class UNet(nn.Module):
         conv4 = self.conv4(pool3)
         pool4 = F.max_pool2d(conv4,kernel_size=2,stride=2)
 
-        # BottelNeck
-        neck = self.neck(pool4)
+        # BottleNeck
+        dropout1 = self.dropout1(pool4)
+        neck = self.neck(dropout1)
         
         # Decoder
         upconv4 = self.upconv4(neck)
@@ -70,13 +74,14 @@ class UNet(nn.Module):
         dconv1 = self.dconv1(torch.cat([upconv1,croped],1))
 
         # Output
-        out = self.out(dconv1)
+        dropout2 = self.dropout2(dconv1)
+        out = self.out(dropout2)
         
         if self.retain == True:
             out = F.interpolate(out,list(x.shape)[2:])
 
         return out
     
-    def crop(self,input_tensor,target_tensor):
+    def crop(self, input_tensor, target_tensor):
         _,_,H,W = target_tensor.shape
         return T.CenterCrop([H,W])(input_tensor)
