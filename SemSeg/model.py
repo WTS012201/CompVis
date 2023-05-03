@@ -5,13 +5,13 @@ import torchvision.transforms as T
 
 
 class Convblock(nn.Module):
-    def __init__(self, in_channel, out_channel, kernal=3, stride=1, padding=1):
+    def __init__(self, in_channel, out_channel, kernel=3, stride=1, padding=1):
         super().__init__()
         self.convblock = nn.Sequential(
-            nn.Conv2d(in_channel, out_channel, kernal, stride, padding),
+            nn.Conv2d(in_channel, out_channel, kernel, stride, padding),
             nn.BatchNorm2d(out_channel),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channel, out_channel, kernal),
+            nn.Conv2d(out_channel, out_channel, kernel),
             nn.ReLU(inplace=True),
         )
 

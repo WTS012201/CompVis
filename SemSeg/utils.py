@@ -1,4 +1,5 @@
 from torch.utils.data import Dataset
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
@@ -35,15 +36,12 @@ class AnyDataset(Dataset):
         return image, label
 
 
-def show(img, pred, label, save_path, epoch, batch_idx=0):
-    img, pred, label = img.cpu(), pred.cpu(), label.cpu()
+def show(img, pred, label, save_path, epoch):
     fig, ax = plt.subplots(1, 3, figsize=(10, 10))
 
-    img, pred, label = img[batch_idx], pred[batch_idx], label[batch_idx]
-    _img, _pred = img, pred.detach().permute(1, 2, 0).numpy()
-    ax[0].imshow(_img.permute(1, 2, 0))
-    ax[1].imshow(_pred)
-    ax[2].imshow(label.permute(1, 2, 0))
+    ax[0].imshow(img)
+    ax[1].imshow(pred)
+    ax[2].imshow(label)
 
     if save_path:
         plt.savefig(f"{save_path}{epoch}") 
@@ -58,6 +56,7 @@ def train(model, train_data, val_data, criterion, optimizer,
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     train_loss, val_loss = [], []
+    rand_idx = np.random.randint(0, len(valid_loader) - 1)
 
     for i in range(1, epochs + 1):
         running_loss = 0
@@ -75,21 +74,31 @@ def train(model, train_data, val_data, criterion, optimizer,
 
         model.eval()
         running_loss = 0
-        for img, label in tqdm(valid_loader):
+
+        keep_img, keep_label, keep_pred = None, None, None
+        for idx, (img, label) in enumerate(tqdm(valid_loader)):
             img = img.to(device)
             label = label.to(device)
             pred = model(img)
+
+            if idx == rand_idx:
+                keep_img = img[0].cpu().permute(1, 2, 0)
+                keep_label = label[0].cpu().permute(1, 2, 0)
+                keep_pred = pred[0].cpu().detach().permute(
+                    1, 2, 0).numpy()
+
+
             loss = criterion(pred, label)
             running_loss += loss.item()
         model.train()
         val_loss.append(round(running_loss / len(valid_loader), 6))
 
         print(
-            f"epoch : {i}",
-            f"train loss : {train_loss[-1]},",
-            f"valid loss : {val_loss[-1]},"
+            f"epoch: {i}",
+            f"train loss: {train_loss[-1]},",
+            f"valid loss: {val_loss[-1]},"
         )
         if not i % show_every or i == 1:
-            show(img, pred, label, save_path, i)
+            show(keep_img, keep_pred, keep_label, save_path, i)
 
     return train_loss, val_loss,
