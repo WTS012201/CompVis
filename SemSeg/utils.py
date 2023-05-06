@@ -36,7 +36,7 @@ class AnyDataset(Dataset):
         return image, label
 
 
-def show(img, pred, label, save_path, epoch):
+def show(img, pred, label, save_path=None, epoch=0):
     fig, ax = plt.subplots(1, 3, figsize=(10, 10))
 
     ax[0].imshow(img)
@@ -56,7 +56,7 @@ def train(model, train_data, val_data, criterion, optimizer,
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     train_loss, val_loss = [], []
-    rand_idx = np.random.randint(0, len(valid_loader) - 1)
+    rand_idx = np.random.randint(0, len(valid_loader))
 
     for i in range(1, epochs + 1):
         running_loss = 0
